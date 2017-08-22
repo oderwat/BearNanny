@@ -2,7 +2,7 @@
 
 [Bear](http://www.bear-writer.com/) is my most favorite note-taking application. This experimental shell application extends what you can do by watching the Bear notes and act on their contents.
 
-
+![Demo 1](assets/demo1.gif)
 
 ## Here some notes about compiling and running it!
 
