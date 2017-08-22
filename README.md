@@ -15,8 +15,8 @@ To build this project one needs the Swift 4 version of the SQLite Package. I sho
 Setting up the package was done like this and is already done if you checked out this repository. I list it mostly for reference:
 
 ```bash
-mkdir bearnanny
-cd bearnanny
+mkdir BearNanny
+cd BearNanny
 swiftenv local 4.0 # using Swift 4 here
 swift package init --type executable
 ```
