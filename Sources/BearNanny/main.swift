@@ -94,112 +94,24 @@ func nanny() throws {
             lastCheck = row[changed]
         }
 
+        let noteModified = Date(timeIntervalSinceReferenceDate: row[changed])
+
         var blocks = text.components(separatedBy: "```")
-
-        var lastCode = ""
-        var lastType = ""
         var lastMeta = [String: String]()
-        var savedAs: String? = nil
-
-        func reInit() {
-            // if there are empty blocks or other spacing we don't process them
-            lastType = ""
-            lastCode = ""
-            lastMeta = [String: String]()
-            savedAs = nil
-        }
+        var skipToIdx = 0
 
         for idx in blocks.indices {
+            if idx < skipToIdx {
+                // fast skipping
+                continue
+            }
             let block = blocks[idx]
 
-            if block.hasPrefix("output") {
-                if lastType != "swift" && lastType != "php" && lastMeta["run"] == nil {
-                    print("output without implicit or explicit way to run it")
-                    reInit()
-                    continue
-                }
+            if block.hasPrefix("meta\n") {
+                // start a new meta collection
+                lastMeta = [String: String]()
 
-                // get hash from note
-                let istHash = block.hasPrefix("output\n") ? "" : String(block[block.index(block.startIndex, offsetBy: 7)..<block.index(of: "\n")!])
-                let sollHash = lastCode.stableHash()
-                if verbose > 0 {
-                    print("\(istHash) / \(sollHash)")
-                }
-                if (istHash == sollHash) {
-                    // no change in sourcecode
-                    if verbose > 0 {
-                        print("no change to the source")
-                    }
-                    reInit()
-                    continue
-                }
-
-                var output = ""
-                do {
-                    var codeFile: String
-
-                    if savedAs != nil {
-                        codeFile = savedAs!
-                    } else {
-                        let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
-                                .appendingPathComponent(UUID().uuidString)
-                                .appendingPathExtension("swift")
-                        codeFile = fileURL.path
-                        // writing to disk
-                        try lastCode.write(to: URL(fileURLWithPath: codeFile), atomically: false, encoding: .utf8)
-                    }
-
-                    //let codeFile = "/tmp/bearnanny_\(uid).swift"
-                    if verbose > 2 {
-                        let date = Date(timeIntervalSinceReferenceDate: row[changed])
-                        let dayTimePeriodFormatter = DateFormatter()
-                        dayTimePeriodFormatter.dateFormat = "YYYY-MM-dd HH:mm:ss"
-                        let dateString = dayTimePeriodFormatter.string(from: date)
-                        print(codeFile)
-                        print("\(lastType) (\(dateString)):")
-                        print(lastCode)
-                    }
-
-                    // run it as code :)
-                    if lastMeta["run"] != nil {
-                        print("run \(lastMeta["run"]!) on \(codeFile)")
-                        (_, output) = shell("/usr/bin/env", [lastMeta["run"]!, codeFile])
-                    } else if lastType == "swift" {
-                        print("run Swift on \(codeFile)")
-                        (_, output) = shell("/usr/bin/env", ["swift", codeFile])
-                    } else if lastType == "php" {
-                        print("run PHP on \(codeFile)")
-                        (_, output) = shell("/usr/bin/env", ["php", codeFile])
-                    }
-                    try FileManager.default.removeItem(atPath: codeFile)
-
-                    if output[output.index(output.endIndex, offsetBy: -1)] != "\n" {
-                        output += "\n"
-                    }
-
-                    if verbose > 2 {
-                        print("Output:")
-                        print(output)
-                    }
-                } catch {
-                    print("error for: \(error)")
-                }
-                // we only replace/update the result if the
-                // output differs (ignoring that the hash needs an update)
-                // this will make it not update when editing the swift file
-                // for whitespace for example.
-                if  blocks[idx] != "output \(istHash)\n\(output)" || true {
-                    blocks[idx] = "output \(sollHash)\n\(output)"
-                    modified = true
-                } else if verbose > 0 {
-                    print("ignoring source change for same output")
-                }
-
-                reInit()
-            } else if block.hasPrefix("meta\n") {
                 // for every new meta block we reset everything
-                reInit()
-
                 let range = block.index(block.startIndex, offsetBy: 5)..<block.index(block.endIndex, offsetBy: -1)
                 for line in String(block[range]).split(separator: "\n") {
                     let keyval = line.split(separator: ":", maxSplits: 1)
@@ -211,7 +123,7 @@ func nanny() throws {
                         lastMeta[key] = val
                     }
                 }
-                if verbose > 0 {
+                if verbose > 1 {
                     for (key, val) in lastMeta {
                         print("'\(key)': '\(val)'")
                     }
@@ -219,41 +131,148 @@ func nanny() throws {
             } else if block != "\n" { // we ignore "in between blocks with just whitespace
                 let end = block.index(of: "\n")
                 if end != nil {
-                    lastType = String(block[block.startIndex..<end!])
-                    lastCode = String(block[(block.index(end!, offsetBy: 1))..<block.endIndex])
+                    let codeType = String(block[block.startIndex..<end!])
 
-                    // test for output block
-                    if blocks.count > idx+2 {
-                        let haveOutput = blocks[idx+2]
-                        print("have output: \(haveOutput)")
+                    if codeType == "" && lastMeta.count == 0 {
+                        if verbose > 1 {
+                            print("Skipping unrelated block")
+                            continue;
+                        }
                     }
 
-                    if lastType == "php" {
+                    var codeText = String(block[(block.index(end!, offsetBy: 1))..<block.endIndex])
+                    var codeFile = ""
+
+                    if codeType == "php" {
                         // PHP gets php tags so the code inside Bear looks cleaner
                         // if one needs "raw" php there is always "run:php" possible too
-                        lastCode = "<?php\n\(lastCode)"
+                        codeText = "<?php\n\(codeText)"
                     }
-                    if verbose > 1 {
-                        print("LastType: \(lastType)")
-                        print("LastCode: \(lastCode)")
+                    if verbose > 2 {
+                        print("codeType: \(codeType)")
                     }
+                    if verbose > 2 {
+                        print("codeText: \(codeText)")
+                    }
+
+                    // we call it maybe a bit to often right now
+                    var sollHash: String?
+
+
                     if let saveas = lastMeta["saveas"] {
-                        print("saving to \(saveas)")
-                        try lastCode.write(to: URL(fileURLWithPath: saveas), atomically: false, encoding: .utf8)
-                        if let perms = lastMeta["chmod"] {
-                            try chmod(saveas, Int(perms, radix: 8)!)
+                        var needSave = true
+                        // check if the file needs to be saved by checking the timestamps (for now)
+                        if let fileModified = fileModified(saveas) {
+                            if verbose > 2 {
+                                print("\(fileModified) vs \(noteModified)")
+                            }
+                            if fileModified > noteModified {
+                                needSave = false
+                            }
                         }
-                        // we saved it so lets remove this
+
+                        if needSave {
+                            sollHash = codeText.stableHash()
+
+                            if verbose > 0 {
+                                print("saving to \(saveas)")
+                            }
+                            try codeText.write(to: URL(fileURLWithPath: saveas), atomically: false, encoding: .utf8)
+                            if let perms = lastMeta["chmod"] {
+                                try chmod(saveas, Int(perms, radix: 8)!)
+                            }
+                        }
+
+                        // we handled (saved) it so lets remove this
                         lastMeta.removeValue(forKey: "saveas")
                         // remember that we (already) saved the code so we don't need to write
                         // it again to "run" it if that is needed
-                        savedAs = saveas
-                    } else {
-                        savedAs = nil
+                        codeFile = saveas
                     }
-                } else {
-                    // if there are empty blocks or other spacing we don't process them
-                    reInit()
+
+                    let knownCode = ["swift", "php"]
+                    // Handle code running
+                    if knownCode.contains(codeType) || lastMeta["run"] != nil {
+                        // test for output block
+                        if blocks.count > idx + 2 && blocks[idx + 2].hasPrefix("output") {
+                            let oi = idx + 2 // output block index
+                            let ob = blocks[oi] // output block contents
+
+                            skipToIdx = oi + 1
+
+                            // get hash from output block
+                            let istHash = ob.hasPrefix("output\n") ?
+                                    "" :
+                                    String(ob[ob.index(ob.startIndex, offsetBy: 7)..<ob.index(of: "\n")!])
+
+                            if sollHash == nil {
+                                sollHash = codeText.stableHash()
+                            }
+
+                            if verbose > 2 {
+                                print("\(istHash) / \(sollHash!)")
+                            }
+
+                            if (istHash == sollHash!) {
+                                // no change in sourcecode
+                                if verbose > 1 {
+                                    print("no change to the source")
+                                }
+                                continue
+                            }
+
+                            var output = ""
+                            do {
+
+                                if codeFile == "" {
+                                    let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                                            .appendingPathComponent(UUID().uuidString)
+                                            .appendingPathExtension("swift")
+                                    codeFile = fileURL.path
+                                    // writing to disk
+                                    try codeText.write(to: URL(fileURLWithPath: codeFile), atomically: false, encoding: .utf8)
+                                }
+
+                                if verbose > 2 {
+                                    let date = Date(timeIntervalSinceReferenceDate: row[changed])
+                                    let dayTimePeriodFormatter = DateFormatter()
+                                    dayTimePeriodFormatter.dateFormat = "YYYY-MM-dd HH:mm:ss"
+                                    let dateString = dayTimePeriodFormatter.string(from: date)
+                                    print(codeFile)
+                                    print("\(codeType) (\(dateString)):")
+                                    print(codeText)
+                                }
+
+                                // run it as code :)
+                                let cmd = lastMeta["run"] ?? codeType
+                                if verbose > 0 {
+                                    print("run \(cmd) on \(codeFile)")
+                                }
+                                (_, output) = shell("/usr/bin/env", [cmd, codeFile])
+
+                                try FileManager.default.removeItem(atPath: codeFile)
+
+                                if output[output.index(output.endIndex, offsetBy: -1)] != "\n" {
+                                    output += "\n"
+                                }
+
+                                if verbose > 2 {
+                                    print("Output:")
+                                    print(output)
+                                }
+                            } catch {
+                                print("error for: \(error)")
+                            }
+                            // updating the output (always, so the hash gets updated)
+                            blocks[oi] = "output \(sollHash!)\n\(output)"
+                            modified = true
+                        } else {
+                            if verbose > 2 {
+                                print("skipping code run because no output is defined")
+                            }
+                        }
+                    }
+                    lastMeta = [String: String]()
                 }
             }
         }

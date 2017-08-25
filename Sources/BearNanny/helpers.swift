@@ -33,3 +33,12 @@ func chmod(_ path: String, _ perms: Int) throws {
     attributes[.posixPermissions] = perms
     try fm.setAttributes(attributes, ofItemAtPath: path)
 }
+
+func fileModified(_ path: String) -> Date? {
+    do {
+        let attr = try FileManager.default.attributesOfItem(atPath: path)
+        return attr[FileAttributeKey.modificationDate] as? Date
+    } catch {
+        return nil
+    }
+}
