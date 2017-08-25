@@ -105,6 +105,52 @@ You can have multiple notes and sections which contain such swift code / output 
 
 Sadly there is a big problem when updating a note externally and this is that it will lose focus (and also my open the note if not active).
 
+### Meta blocks
+
+You can now define a meta block which lets you do some more cool stuff:
+
+Here some examples:
+
+#### Saving a code block to the filesystem (and chmod it)
+
+    ```meta
+    saveas: ~/bin/myscript
+    chmod: 0777
+    ```
+    ```shell
+    #!/bin/bash
+    echo "I was created in Bear!
+    ```
+
+#### Running a shell command on a code block
+
+    ```meta
+    run: sort
+    ```
+    ```
+    this
+    is
+    an
+    unsorted
+    list
+    ```
+    ```output 1n1oz33f4bxj0
+    an
+    is
+    list
+    this
+    unsorted
+    ```
+
+#### I added PHP support
+
+    ```php
+    echo date('Y-m-d H:i:s')
+    ```
+    ```output
+    ```
+
+
 It will also work on connected devices if you have BearNanny running on one of them :)
 
 *I know the SIGINT code is bogus! But it is better than nothing*
