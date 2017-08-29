@@ -266,8 +266,10 @@ func nanny() throws {
 
                                 try FileManager.default.removeItem(atPath: codeFile)
 
-                                if output[output.index(output.endIndex, offsetBy: -1)] != "\n" {
-                                    output += "\n"
+                                if output != "" {
+                                    if output[output.index(output.endIndex, offsetBy: -1)] != "\n" {
+                                        output += "\n"
+                                    }
                                 }
 
                                 if verbose > 2 {
