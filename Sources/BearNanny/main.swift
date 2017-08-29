@@ -11,6 +11,8 @@ let homeDirURL = URL(fileURLWithPath: NSHomeDirectory())
 let bearDB = try Connection("\(homeDirURL.absoluteString)/Library/Containers/net.shinyfrog.bear/Data/Documents/Application Data/database.sqlite",
         readonly: true)
 
+bearDB.busyTimeout = 5
+
 //bearDB.trace { print($0) }
 
 var globalTask: Process?
@@ -78,7 +80,7 @@ func nanny() throws {
     let changed = Expression<Double>("ZMODIFICATIONDATE")
 
     let query = notes.select(uid, title, text, changed)
-            .filter(text.like("%```swift\n%```\n```output%\n%```\n%") || text.like("%```meta\n%```\n```%\n%```\n%"))
+            .filter(text.like("%```%\n%```\n```output%\n%```\n%") || text.like("%```meta\n%```\n```%\n%```\n%"))
             .filter(changed > lastCheck)
             .filter(trashed == 0)
 
@@ -142,6 +144,7 @@ func nanny() throws {
 
                     var codeText = String(block[(block.index(end!, offsetBy: 1))..<block.endIndex])
                     var codeFile = ""
+                    var codeExtension = ""
 
                     if codeType == "php" {
                         // PHP gets php tags so the code inside Bear looks cleaner
@@ -190,7 +193,7 @@ func nanny() throws {
                         codeFile = saveas
                     }
 
-                    let knownCode = ["swift", "php"]
+                    let knownCode = ["swift", "php", "python"]
                     // Handle code running
                     if knownCode.contains(codeType) || lastMeta["run"] != nil {
                         // test for output block
@@ -224,10 +227,23 @@ func nanny() throws {
                             var output = ""
                             do {
 
+                                // run it as code :)
+                                let cmd = lastMeta["run"] ?? codeType
+
                                 if codeFile == "" {
+                                    switch(cmd) {
+                                    case "php":
+                                        codeExtension = "php"
+                                    case "swift":
+                                        codeExtension = "swift"
+                                    case "python":
+                                        codeExtension = "py"
+                                    default:
+                                        codeExtension = lastMeta["ext"] ?? "txt"
+                                    }
                                     let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
                                             .appendingPathComponent(UUID().uuidString)
-                                            .appendingPathExtension("swift")
+                                            .appendingPathExtension(codeExtension)
                                     codeFile = fileURL.path
                                     // writing to disk
                                     try codeText.write(to: URL(fileURLWithPath: codeFile), atomically: false, encoding: .utf8)
@@ -243,8 +259,6 @@ func nanny() throws {
                                     print(codeText)
                                 }
 
-                                // run it as code :)
-                                let cmd = lastMeta["run"] ?? codeType
                                 if verbose > 0 {
                                     print("run \(cmd) on \(codeFile)")
                                 }
