@@ -150,7 +150,20 @@ Here some examples:
     ```output
     ```
 
-### I added "run triggering"
+#### I added "run triggering"
+
+    ```meta
+    trigger: <<<
+    ```
+    ```python
+    print 12 + 4<<<
+    ```
+    ```output
+    ```
+
+"Run triggering" means that the code will only be evaluated if the code contains the trigger marker. If it finds the marker, it will remove the trigger marker before the execution of the code block.  It will also update the code block to not contain the trigger marker anymore. This way you can write long code parts and trigger the execution easily when you are ready.
+
+Above code will look like this after the trigger was resolved:
 
     ```meta
     trigger: <<<
@@ -158,11 +171,11 @@ Here some examples:
     ```python
     print 12 + 4
     ```
-    ```output
+    ```output 1obkthc1f68tu
+    16
     ```
 
-"Run triggering" means that the code will only be evaluated if the code contains the trigger marker. If it finds the marker, it will remove the trigger marker before the execution of the code block. It will also update the code block to not contain the trigger marker anymore. This way you can write long code parts and trigger the execution easily when you are ready.
-
+### Synced Content
 
 It will also work on connected devices if you have BearNanny running on one of them :)
 
