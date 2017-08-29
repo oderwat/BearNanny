@@ -146,6 +146,25 @@ func nanny() throws {
                     var codeFile = ""
                     var codeExtension = ""
 
+                    // check for a trigger
+                    if let trigger = lastMeta["trigger"] {
+                        if codeText.contains(trigger) {
+                            // trigger entfernen (damit er nicht stört)
+                            if verbose > 0 {
+                                print("got trigger: \(trigger)")
+                            }
+                            codeText = codeText.replacingOccurrences(of: trigger, with: "")
+                            blocks[idx] = blocks[idx].replacingOccurrences(of: trigger, with: "")
+                            modified = true
+                        } else {
+                            // no trigger, just skipp for now
+                            if verbose > 1 {
+                                print("expecting trigger \(trigger)")
+                            }
+                            continue;
+                        }
+                    }
+
                     if codeType == "php" {
                         // PHP gets php tags so the code inside Bear looks cleaner
                         // if one needs "raw" php there is always "run:php" possible too

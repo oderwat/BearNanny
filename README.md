@@ -142,13 +142,26 @@ Here some examples:
     unsorted
     ```
 
-#### I added PHP support
+#### I added PHP (and Python) support
 
     ```php
     echo date('Y-m-d H:i:s')
     ```
     ```output
     ```
+
+### I added "run triggering"
+
+    ```meta
+    trigger: <<<
+    ```
+    ```python
+    print 12 + 4
+    ```
+    ```output
+    ```
+
+"Run triggering" means that the code will only be evaluated if the code contains the trigger marker. If it finds the marker, it will remove the trigger marker before the execution of the code block. It will also update the code block to not contain the trigger marker anymore. This way you can write long code parts and trigger the execution easily when you are ready.
 
 
 It will also work on connected devices if you have BearNanny running on one of them :)
