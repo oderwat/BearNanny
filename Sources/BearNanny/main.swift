@@ -86,7 +86,7 @@ func nanny() throws {
 
     for row in try bearDB.prepare(query) {
         var modified = false
-        let uid = row[uid]
+        let noteUid = row[uid]
         // removing the first line (which counts as title)
         let parts = row[text].split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
         let text = String(parts[1])
@@ -114,6 +114,9 @@ func nanny() throws {
                 lastMeta = [String: String]()
 
                 // for every new meta block we reset everything
+                if block.count < 6 {
+                    continue
+                }
                 let range = block.index(block.startIndex, offsetBy: 5)..<block.index(block.endIndex, offsetBy: -1)
                 for line in String(block[range]).split(separator: "\n") {
                     let keyval = line.split(separator: ":", maxSplits: 1)
@@ -317,7 +320,7 @@ func nanny() throws {
             let build = blocks.joined(separator: "```")
             let urlText = build.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
                     .replacingOccurrences(of: "=", with: "%3d")
-            if let url = URL(string: "bear://x-callback-url/add-text?id=\(uid)&mode=replace&text=\(urlText)") {
+            if let url = URL(string: "bear://x-callback-url/add-text?id=\(noteUid)&mode=replace&text=\(urlText)") {
                 NSWorkspace.shared.open(url)
             } else {
                 print("error: can't build url")
