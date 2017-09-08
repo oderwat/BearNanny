@@ -17,6 +17,7 @@ bearDB.busyTimeout = 5
 
 var globalTask: Process?
 var lastCheck: Double = 0.0
+var trigger = "<<<"
 var verbose = 1
 
 @discardableResult
@@ -70,6 +71,33 @@ func searchAndOpen(term: String) throws {
     }
 }
 
+func placeCursor(_ line: Int, _ column: Int) {
+
+    let script = """
+    tell application \"System Events\"
+        keystroke return
+        key down {command}
+        key code 126
+        key up {command}
+        repeat with i from 1 to \(line)
+            key code 125
+        end repeat
+        repeat with i from 1 to \(column)
+            key code 124
+        end repeat
+    end tell
+    """
+
+    do {
+        let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent(UUID().uuidString)
+        try script.write(to: URL(fileURLWithPath: fileURL.path), atomically: false, encoding: .utf8)
+        shell("/usr/bin/env", ["osascript", fileURL.path])
+    } catch {
+        return
+    }
+}
+
 
 func nanny() throws {
     let notes = Table("ZSFNOTE")
@@ -79,8 +107,35 @@ func nanny() throws {
     let trashed = Expression<Int64>("ZTRASHED")
     let changed = Expression<Double>("ZMODIFICATIONDATE")
 
+    var newestChange = 0.0
+
+    // read the BearNanny Config (if available) from the dedicated note :)
+    let configQuery = notes.select(text, changed)
+            .filter(text.like("%```BearNanny%"))
+            .filter(changed > lastCheck)
+            .filter(trashed == 0)
+    for row in try bearDB.prepare(configQuery) {
+        if row[changed] > newestChange {
+            newestChange = row[changed]
+        }
+        let text = row[text]
+        for line in text.split(separator: "\n") {
+            let keyval = line.split(separator: ":", maxSplits: 1)
+            if keyval.count == 2 {
+                let key = keyval[0].trim()
+                let val = keyval[1].trim()
+                if key == "trigger" {
+                    trigger = val
+                    if verbose > 0 {
+                        print("run trigger set to: '\(trigger)'")
+                    }
+                }
+            }
+        }
+    }
+
     let query = notes.select(uid, title, text, changed)
-            .filter(text.like("%```%\n%```\n```output%\n%```\n%") || text.like("%```meta\n%```\n```%\n%```\n%"))
+            .filter(text.like("%```%\n%```\n```output%\n%```%") || text.like("%```meta\n%```\n```%\n%```%"))
             .filter(changed > lastCheck)
             .filter(trashed == 0)
 
@@ -92,8 +147,8 @@ func nanny() throws {
         let text = String(parts[1])
 
         // it will still trigger twice because of the update to the note by url-scheme
-        if row[changed] > lastCheck {
-            lastCheck = row[changed]
+        if row[changed] > newestChange {
+            newestChange = row[changed]
         }
 
         let noteModified = Date(timeIntervalSinceReferenceDate: row[changed])
@@ -102,12 +157,22 @@ func nanny() throws {
         var lastMeta = [String: String]()
         var skipToIdx = 0
 
+        var blockStartLine = 1 // first line was stripped as "header" of the note
+        var lastLineCount = 0
+
+        var triggerLine = -1
+        var triggerColumn = -1
+
         for idx in blocks.indices {
+            let block = blocks[idx]
+            // Counting lines like this makes it easier to handle the continues in the loop
+            blockStartLine += lastLineCount
+            lastLineCount = block.countInstances(of: "\n")
+
             if idx < skipToIdx {
                 // fast skipping
                 continue
             }
-            let block = blocks[idx]
 
             if block.hasPrefix("meta\n") {
                 // start a new meta collection
@@ -117,6 +182,7 @@ func nanny() throws {
                 if block.count < 6 {
                     continue
                 }
+
                 let range = block.index(block.startIndex, offsetBy: 5)..<block.index(block.endIndex, offsetBy: -1)
                 for line in String(block[range]).split(separator: "\n") {
                     let keyval = line.split(separator: ":", maxSplits: 1)
@@ -133,7 +199,7 @@ func nanny() throws {
                         print("'\(key)': '\(val)'")
                     }
                 }
-            } else if block != "\n" { // we ignore "in between blocks with just whitespace
+            } else if block != "\n" && !block.hasPrefix("BearNanny\n") { // we ignore "in between blocks with just whitespace
                 let end = block.index(of: "\n")
                 if end != nil {
                     let codeType = String(block[block.startIndex..<end!])
@@ -141,8 +207,8 @@ func nanny() throws {
                     if codeType == "" && lastMeta.count == 0 {
                         if verbose > 1 {
                             print("Skipping unrelated block")
-                            continue;
                         }
+                        continue;
                     }
 
                     var codeText = String(block[(block.index(end!, offsetBy: 1))..<block.endIndex])
@@ -150,22 +216,33 @@ func nanny() throws {
                     var codeExtension = ""
 
                     // check for a trigger
-                    if let trigger = lastMeta["trigger"] {
-                        if codeText.contains(trigger) {
-                            // trigger entfernen (damit er nicht stört)
-                            if verbose > 0 {
-                                print("got trigger: \(trigger)")
-                            }
-                            codeText = codeText.replacingOccurrences(of: trigger, with: "")
-                            blocks[idx] = blocks[idx].replacingOccurrences(of: trigger, with: "")
-                            modified = true
-                        } else {
-                            // no trigger, just skipp for now
-                            if verbose > 1 {
-                                print("expecting trigger \(trigger)")
-                            }
-                            continue;
+                    if codeText.contains(trigger) {
+                        // trigger entfernen (damit er nicht stört)
+                        if verbose > 0 {
+                            print("got trigger: \(trigger)")
                         }
+                        codeText = codeText.replacingOccurrences(of: trigger, with: "")
+                        blocks[idx] = blocks[idx].replacingOccurrences(of: trigger, with: "")
+                        modified = true
+                        // we need to find the exact line where the trigger is
+                        // and from that what the exact column is
+                        let lines = block.components(separatedBy: "\n")
+                        for lineIdx in lines.indices {
+                            let line = lines[lineIdx]
+                            if let range = line.range(of: trigger) {
+                                let startPos = line.distance(from: line.startIndex, to: range.lowerBound)
+                                //let endPos = mystring.distance(from: mystring.startIndex, to: range.upperBound)
+                                triggerLine = blockStartLine + lineIdx
+                                triggerColumn = startPos
+                                break
+                            }
+                        }
+                    } else {
+                        // no trigger, just skipp for now
+                        if verbose > 1 {
+                            print("expecting trigger \(trigger)")
+                        }
+                        continue;
                     }
 
                     if codeType == "php" {
@@ -322,10 +399,20 @@ func nanny() throws {
                     .replacingOccurrences(of: "=", with: "%3d")
             if let url = URL(string: "bear://x-callback-url/add-text?id=\(noteUid)&mode=replace&text=\(urlText)") {
                 NSWorkspace.shared.open(url)
+                if triggerLine >= 0 {
+                    if verbose > 1 {
+                        print("trigger at line: \(triggerLine) column: \(triggerColumn)")
+                    }
+                    placeCursor(triggerLine, triggerColumn)
+                }
             } else {
                 print("error: can't build url")
             }
         }
+    }
+
+    if newestChange > lastCheck {
+        lastCheck = newestChange
     }
 }
 

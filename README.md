@@ -4,6 +4,111 @@
 
 ![Demo 1](assets/demo1.gif)
 
+## Using it:
+
+Start BearNanny either by running `swift run` or build the executable with `swift build -c release -Xswiftc -static-stdlib` and maybe `strip .build/release/BearNanny`.
+
+> I added a (hopefully) working version in the `bin/` folder of the project!
+>
+>*Please note that this binary won't be updated if you make changes and compile it yourself!*
+
+With that running open up Bear and write a note with the following content:
+
+    # BearNanny Test
+
+    ```swift
+    let a = 7
+    let b = 8
+    print(a * b)<<<
+    ```
+    ```output
+    ```
+    ---
+    #BearNanny
+
+
+After a short time BearNanny should output some information to the console (in verbose mode) and the output part of the note should update to:
+
+    ```output 1fquuqd4jqb30
+    56
+    ```
+
+The characters after the word output are a checksum of the code which helps avoiding recalculation. It also does not update the note if the output is the same as before like when editing comments.
+
+You can have multiple notes and sections which contain such swift code / output sections. BearNanny will check every other second for changes (and runs endlessly).
+
+Using a trigger (default `<<<`) for re-computing the output has two reasons:
+
+1. Before using the trigger, BearNanny was running the code much to often. Nice for the initial proof of concept but not really useful. Now you can trigger running the code when your changes are done.
+2. Bear currently still loses focus and cursor position when a note gets updated from external. So I figured out a very hacky trick to work around this: I figure out the line and column of the trigger in the note. After running the code and updating the note with the new output I create and run a little Apple Script to send keystrokes to the Bear Application which moves the cursor (hopefully) to the location the trigger was found.
+
+#### BearNanny Config
+
+As the code trigger may not fit for your use case you can change it by creating a code block with the following content:
+
+    ```BearNanny
+    trigger: <<<
+    ```
+
+*Notice: All occurences of the trigger get erased in the code block when found!*
+
+### Meta blocks
+
+You can now define a meta block which lets you do some more cool stuff:
+
+Here some examples:
+
+#### Saving a code block to the filesystem (and chmod it)
+
+    ```meta
+    saveas: ~/bin/myscript
+    chmod: 0777
+    ```
+    ```shell
+    #!/bin/bash
+    echo "I was created in Bear!
+    ```
+
+Saving happens automatically every time the code gets changed. There is no trigger needed!
+
+*Take care as it will not ask you if the file it saves already exists!*
+
+#### Running a shell command on a code block
+
+    ```meta
+    run: sort
+    ```
+    ```
+    this
+    is
+    an
+    unsorted
+    list
+    ```
+    ```output 1n1oz33f4bxj0
+    an
+    is
+    list
+    this
+    unsorted
+    ```
+
+#### PHP (and Python) support
+
+    ```php
+    echo date('Y-m-d H:i:s')
+    ```
+    ```output
+    ```
+
+#### Complex Usage
+
+You can combine "run" and "saveas" to store the code you run at the same time. You can even use some "saveas" blocks to transfer data from the note to files which then are used by a "run" code block.
+
+### Synced Content
+
+It will also work on connected devices if you have BearNanny running on one of them :)
+
 ## Here some notes about compiling and running it!
 
 ### Background and my procedure for creating the package (for reference):
@@ -69,115 +174,6 @@ swift package generate-xcodeproj
 To be able to compile it with XCode 9 (or AppCode) there needs to be `Enable Modules (C and Objective-C)` set to `Yes` for the target `SQLiteObjc`.
 
 This seems not to matter if compiling with `swift build` or just `swift run` the project.
-
-## Using it:
-
-Start BearNanny either by running `swift run` or build the executable with `swift build -c release -Xswiftc -static-stdlib` and maybe `strip .build/release/BearNanny`.
-
-> I added a (hopefully) working version in the `bin/` folder of the project!
->
->*Please note that this binary won't be updated if you make changes and compile it yourself!*
-
-With that running open up Bear and write a note with the following content:
-
-    # BearNanny Test
-    Following code will be run by BearNanny and updates the `output` section!
-    ```swift
-    let a = 7
-    let b = 8
-    print(a * b)
-    ```
-    ```output
-    ```
-    ---
-    #BearNanny
-
-
-After a short time BearNanny should output some information (in verbose mode) and the output part of the note should update to:
-
-    ```output 1mzhegsz6ecmm
-    56
-    ```
-
-The characters after the word output are a checksum of the code which helps avoiding recalculation. It also does not update the note if the output is the same as before like when editing comments.
-
-You can have multiple notes and sections which contain such swift code / output sections. BearNanny will check every other second for changes (and runs endlessly).
-
-Sadly there is a big problem when updating a note externally and this is that it will lose focus (and also my open the note if not active).
-
-### Meta blocks
-
-You can now define a meta block which lets you do some more cool stuff:
-
-Here some examples:
-
-#### Saving a code block to the filesystem (and chmod it)
-
-    ```meta
-    saveas: ~/bin/myscript
-    chmod: 0777
-    ```
-    ```shell
-    #!/bin/bash
-    echo "I was created in Bear!
-    ```
-
-#### Running a shell command on a code block
-
-    ```meta
-    run: sort
-    ```
-    ```
-    this
-    is
-    an
-    unsorted
-    list
-    ```
-    ```output 1n1oz33f4bxj0
-    an
-    is
-    list
-    this
-    unsorted
-    ```
-
-#### I added PHP (and Python) support
-
-    ```php
-    echo date('Y-m-d H:i:s')
-    ```
-    ```output
-    ```
-
-#### I added "run triggering"
-
-    ```meta
-    trigger: <<<
-    ```
-    ```python
-    print 12 + 4<<<
-    ```
-    ```output
-    ```
-
-"Run triggering" means that the code will only be evaluated if the code contains the trigger marker. If it finds the marker, it will remove the trigger marker before the execution of the code block.  It will also update the code block to not contain the trigger marker anymore. This way you can write long code parts and trigger the execution easily when you are ready.
-
-Above code will look like this after the trigger was resolved:
-
-    ```meta
-    trigger: <<<
-    ```
-    ```python
-    print 12 + 4
-    ```
-    ```output 1obkthc1f68tu
-    16
-    ```
-
-### Synced Content
-
-It will also work on connected devices if you have BearNanny running on one of them :)
 
 *I know the SIGINT code is bogus! But it is better than nothing*
 
