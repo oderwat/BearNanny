@@ -7,11 +7,9 @@ import Foundation
 
 extension Substring {
     func trim() -> String {
-        var trimmed = String(self)
-        for replace in [" ", "\n", "\""] {
-            trimmed = trimmed.replacingOccurrences(of: replace, with: "", options: NSString.CompareOptions.literal, range: nil)
-        }
-        return trimmed
+        var cs = CharacterSet.whitespacesAndNewlines
+        cs.insert(charactersIn: "\"'")
+        return self.trimmingCharacters(in: cs)
     }
 }
 
@@ -24,9 +22,7 @@ extension String {
         }
         return String(result, radix: 36)
     }
-}
 
-extension String {
     func countInstances(of stringToFind: String) -> Int {
         assert(!stringToFind.isEmpty)
         var searchRange: Range<String.Index>?

@@ -17,15 +17,18 @@ bearDB.busyTimeout = 5
 
 var globalTask: Process?
 var lastCheck: Double = 0.0
-var trigger = "<<<"
+var runTrigger = "<<<"
+var formatTrigger = ">>>"
+var formatOnRun = false
+var formatConfigSwift: String?
 var verbose = 1
 
 @discardableResult
-func shell(_ command: String, _ args: [String] = []) -> (Int32, String) {
+func shell(_ command: String, _ args: [String] = [], stdin: String? = nil) -> (Int32, String, String) {
 
     globalTask = Process()
     guard let task = globalTask else {
-        return (-1, "")
+        return (-1, "", "")
     }
     defer {
         globalTask = nil
@@ -33,10 +36,15 @@ func shell(_ command: String, _ args: [String] = []) -> (Int32, String) {
     task.launchPath = command
     task.arguments = args
 
-    let pipe = Pipe()
-    task.standardOutput = pipe
-    task.standardError = pipe // redirects stderr to stdout so we can parse that too
-    task.standardInput = FileHandle.nullDevice
+    let pipeOutput = Pipe()
+    let pipeError = Pipe()
+    task.standardOutput = pipeOutput
+    task.standardError = pipeError // redirects stderr to stdout so we can parse that too
+    if let stdinFile = stdin {
+        task.standardInput = FileHandle(forReadingAtPath: stdinFile)
+    } else {
+        task.standardInput = FileHandle.nullDevice
+    }
 
     signal(SIGINT) { signal in
         print("Interrupted! Cleaning up...")
@@ -51,12 +59,14 @@ func shell(_ command: String, _ args: [String] = []) -> (Int32, String) {
 
     task.launch()
 
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    let dataOutput = pipeOutput.fileHandleForReading.readDataToEndOfFile()
+    let dataError = pipeError.fileHandleForReading.readDataToEndOfFile()
 
     task.waitUntilExit()
 
-    let output = String(data: data, encoding: String.Encoding.utf8)!
-    return (task.terminationStatus, output)
+    let output = String(data: dataOutput, encoding: String.Encoding.utf8)!
+    let error = String(data: dataError, encoding: String.Encoding.utf8)!
+    return (task.terminationStatus, output, error)
 }
 
 func searchAndOpen(term: String) throws {
@@ -124,18 +134,38 @@ func nanny() throws {
             if keyval.count == 2 {
                 let key = keyval[0].trim()
                 let val = keyval[1].trim()
-                if key == "trigger" {
-                    trigger = val
+                switch key {
+                case "RunTrigger":
+                    runTrigger = val
                     if verbose > 0 {
-                        print("run trigger set to: '\(trigger)'")
+                        print("run trigger set to: '\(runTrigger)'")
                     }
+                case "FormatTrigger":
+                    formatTrigger = val
+                    if verbose > 0 {
+                        print("format trigger set to: '\(formatTrigger)'")
+                    }
+                case "FormatOnRun":
+                    formatOnRun = val == "true"
+                    if verbose > 0 {
+                        print("format on run set to: '\(formatOnRun ? "true" : "false")'")
+                    }
+                case "FormatSwift":
+                    formatConfigSwift = val
+                    if verbose > 0 {
+                        print("FormatSwift options set to: '\(formatConfigSwift!)'")
+                    }
+                default:
+                    print("Unknown key \(key) in BearConfig block")
                 }
             }
         }
     }
 
     let query = notes.select(uid, title, text, changed)
-            .filter(text.like("%```%\n%```\n```output%\n%```%") || text.like("%```meta\n%```\n```%\n%```%"))
+            .filter(text.like("%```%\(runTrigger)%\n%```%") ||
+                    text.like("%```%\(formatTrigger)%\n%```%") ||
+                    text.like("%```meta\n%```\n```%\n%```%"))
             .filter(changed > lastCheck)
             .filter(trashed == 0)
 
@@ -154,6 +184,7 @@ func nanny() throws {
         let noteModified = Date(timeIntervalSinceReferenceDate: row[changed])
 
         var blocks = text.components(separatedBy: "```")
+
         var lastMeta = [String: String]()
         var skipToIdx = 0
 
@@ -162,6 +193,8 @@ func nanny() throws {
 
         var triggerLine = -1
         var triggerColumn = -1
+
+        var removeBlocks = [Int]()
 
         for idx in blocks.indices {
             let block = blocks[idx]
@@ -215,17 +248,38 @@ func nanny() throws {
                     var codeFile = ""
                     var codeExtension = ""
 
-                    // check for a trigger
-                    if codeText.contains(trigger) {
+                    let haveRunTrigger = codeText.contains(runTrigger)
+                    let haveFormatTrigger = codeText.contains(formatTrigger)
+
+                    var triggers: [String] = []
+                    if haveRunTrigger {
+                        triggers.append(runTrigger)
+                    }
+
+                    if haveFormatTrigger {
+                        // both triggers can be the same characters
+                        if !triggers.contains(formatTrigger) {
+                            triggers.append(formatTrigger)
+                        }
+                    }
+
+                    // check for triggers
+                    if triggers.count > 0 {
                         // trigger entfernen (damit er nicht stört)
                         if verbose > 0 {
-                            print("got trigger: \(trigger)")
+                            print("got trigger!")
                         }
-                        codeText = codeText.replacingOccurrences(of: trigger, with: "")
-                        blocks[idx] = blocks[idx].replacingOccurrences(of: trigger, with: "")
+
+                        for trigger in triggers {
+                            codeText = codeText.replacingOccurrences(of: trigger, with: "")
+                            blocks[idx] = blocks[idx].replacingOccurrences(of: trigger, with: "")
+
+                        }
                         modified = true
-                        // we need to find the exact line where the trigger is
+
+                        // we need to find the exact line where the (first) trigger is
                         // and from that what the exact column is
+                        let trigger = triggers[0]
                         let lines = block.components(separatedBy: "\n")
                         for lineIdx in lines.indices {
                             let line = lines[lineIdx]
@@ -237,29 +291,7 @@ func nanny() throws {
                                 break
                             }
                         }
-                    } else {
-                        // no trigger, just skipp for now
-                        if verbose > 1 {
-                            print("expecting trigger \(trigger)")
-                        }
-                        continue;
                     }
-
-                    if codeType == "php" {
-                        // PHP gets php tags so the code inside Bear looks cleaner
-                        // if one needs "raw" php there is always "run:php" possible too
-                        codeText = "<?php\n\(codeText)"
-                    }
-                    if verbose > 2 {
-                        print("codeType: \(codeType)")
-                    }
-                    if verbose > 2 {
-                        print("codeText: \(codeText)")
-                    }
-
-                    // we call it maybe a bit to often right now
-                    var sollHash: String?
-
 
                     if let saveas = lastMeta["saveas"] {
                         var needSave = true
@@ -274,8 +306,6 @@ func nanny() throws {
                         }
 
                         if needSave {
-                            sollHash = codeText.stableHash()
-
                             if verbose > 0 {
                                 print("saving to \(saveas)")
                             }
@@ -292,45 +322,29 @@ func nanny() throws {
                         codeFile = saveas
                     }
 
-                    let knownCode = ["swift", "php", "python"]
-                    // Handle code running
-                    if knownCode.contains(codeType) || lastMeta["run"] != nil {
-                        // test for output block
-                        if blocks.count > idx + 2 && blocks[idx + 2].hasPrefix("output") {
-                            let oi = idx + 2 // output block index
-                            let ob = blocks[oi] // output block contents
+                    if haveRunTrigger || haveFormatTrigger {
+                        if codeType == "php" {
+                            // PHP gets php tags so the code inside Bear looks cleaner
+                            // if one needs "raw" php there is always "run:php" possible too
+                            codeText = "<?php\n\(codeText)"
+                        }
+                        if verbose > 2 {
+                            print("codeType: \(codeType)")
+                        }
+                        if verbose > 2 {
+                            print("codeText: \(codeText)")
+                        }
 
-                            skipToIdx = oi + 1
-
-                            // get hash from output block
-                            let istHash = ob.hasPrefix("output\n") ?
-                                    "" :
-                                    String(ob[ob.index(ob.startIndex, offsetBy: 7)..<ob.index(of: "\n")!])
-
-                            if sollHash == nil {
-                                sollHash = codeText.stableHash()
-                            }
-
-                            if verbose > 2 {
-                                print("\(istHash) / \(sollHash!)")
-                            }
-
-                            if (istHash == sollHash!) {
-                                // no change in sourcecode
-                                if verbose > 1 {
-                                    print("no change to the source")
-                                }
-                                continue
-                            }
-
-                            var output = ""
+                        let knownCode = ["swift", "php", "python"]
+                        // Handle code running
+                        if knownCode.contains(codeType) || lastMeta["run"] != nil {
                             do {
 
                                 // run it as code :)
                                 let cmd = lastMeta["run"] ?? codeType
 
                                 if codeFile == "" {
-                                    switch(cmd) {
+                                    switch cmd {
                                     case "php":
                                         codeExtension = "php"
                                     case "swift":
@@ -358,35 +372,92 @@ func nanny() throws {
                                     print(codeText)
                                 }
 
-                                if verbose > 0 {
-                                    print("run \(cmd) on \(codeFile)")
-                                }
-                                (_, output) = shell("/usr/bin/env", [cmd, codeFile])
-
-                                try FileManager.default.removeItem(atPath: codeFile)
-
-                                if output != "" {
-                                    if output[output.index(output.endIndex, offsetBy: -1)] != "\n" {
-                                        output += "\n"
+                                if haveFormatTrigger || (haveRunTrigger && formatOnRun) {
+                                    if codeType == "swift" {
+                                        // formatting (swift) source code :)
+                                        if let swiftFormat = formatConfigSwift {
+                                            print("swiftformat: \(swiftFormat)")
+                                            let (rc, codeFormatted, error) = shell("/usr/bin/env",
+                                                    swiftFormat.components(separatedBy: " "), stdin: codeFile)
+                                            if codeFormatted != codeText {
+                                                if rc != 0 || error.count > 0 {
+                                                    print("Skipping format because of possible error")
+                                                    print(codeFormatted)
+                                                    print(error)
+                                                } else {
+                                                    // Update to the formatted version of the code
+                                                    try codeFormatted.write(to: URL(fileURLWithPath: codeFile), atomically: false, encoding: .utf8)
+                                                    blocks[idx] = String("swift\n\(codeFormatted)".dropLast())
+                                                    modified = true
+                                                }
+                                            }
+                                        }
                                     }
                                 }
 
-                                if verbose > 2 {
-                                    print("Output:")
-                                    print(output)
+                                if haveRunTrigger {
+                                    if verbose > 0 {
+                                        print("run \(cmd) on \(codeFile)")
+                                    }
+                                    var (_, output, error) = shell("/usr/bin/env", [cmd, codeFile])
+
+                                    var boffset = 0
+                                    // is the next block an 'errors' block
+                                    if blocks.count > idx + 3 && blocks[idx + 2].hasPrefix("errors") {
+                                        // we remove two error blocks
+                                        skipToIdx = idx + 2
+                                        removeBlocks.append(idx + 2)
+                                        removeBlocks.append(idx + 3)
+                                        boffset = 2
+                                        modified = true
+                                    }
+
+                                    // have an output block?
+                                    if blocks.count > idx + 3 + boffset && blocks[idx + 2 + boffset].hasPrefix("output") {
+                                        let oi = idx + 2 + boffset // output block index
+                                        skipToIdx = idx + 4
+
+                                        if output != "" {
+                                            if output[output.index(output.endIndex, offsetBy: -1)] != "\n" {
+                                                output += "\n"
+                                            }
+                                        }
+
+                                        if error != "" {
+                                            if error[error.index(error.endIndex, offsetBy: -1)] != "\n" {
+                                                error += "\n"
+                                            }
+                                        }
+
+                                        if verbose > 2 {
+                                            print("Output:")
+                                            print(output)
+                                        }
+
+                                        if verbose > 0 && error != "" {
+                                            print("Error:")
+                                            print(error)
+                                        }
+
+                                        if error != "" {
+                                            // updating the output and prepend an error block
+                                            blocks[oi] = "errors\n\(error)```\n```output\n\(output)"
+                                        } else {
+                                            // updating the output
+                                            blocks[oi] = "output\n\(output)"
+                                        }
+                                        modified = true
+                                    }
+
                                 }
+                                try FileManager.default.removeItem(atPath: codeFile)
+
                             } catch {
                                 print("error for: \(error)")
                             }
-                            // updating the output (always, so the hash gets updated)
-                            blocks[oi] = "output \(sollHash!)\n\(output)"
-                            modified = true
-                        } else {
-                            if verbose > 2 {
-                                print("skipping code run because no output is defined")
-                            }
                         }
                     }
+
                     lastMeta = [String: String]()
                 }
             }
@@ -394,6 +465,11 @@ func nanny() throws {
 
         if modified {
             // Updating the note in Bear with the new content
+            var offset = 0
+            for remIdx in removeBlocks {
+                blocks.remove(at: remIdx - offset)
+                offset += 1
+            }
             let build = blocks.joined(separator: "```")
             let urlText = build.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
                     .replacingOccurrences(of: "=", with: "%3d")

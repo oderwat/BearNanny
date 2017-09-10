@@ -37,20 +37,25 @@ The characters after the word output are a checksum of the code which helps avoi
 
 You can have multiple notes and sections which contain such swift code / output sections. BearNanny will check every other second for changes (and runs endlessly).
 
-Using a trigger (default `<<<`) for re-computing the output has two reasons:
+Using a run trigger (default `<<<`) for re-computing the output has two reasons:
 
 1. Before using the trigger, BearNanny was running the code much to often. Nice for the initial proof of concept but not really useful. Now you can trigger running the code when your changes are done.
 2. Bear currently still loses focus and cursor position when a note gets updated from external. So I figured out a very hacky trick to work around this: I figure out the line and column of the trigger in the note. After running the code and updating the note with the new output I create and run a little Apple Script to send keystrokes to the Bear Application which moves the cursor (hopefully) to the location the trigger was found.
+
+You can also define a trigger for code block formatting (currently only for Swift code utilising `swiftformat`) which can be used to re-format a code block with a simple trigger. See below configuration for an example.
 
 #### BearNanny Config
 
 As the code trigger may not fit for your use case you can change it by creating a code block with the following content:
 
     ```BearNanny
-    trigger: <<<
+    RunTrigger: <<<
+    FormatTrigger: >>>
+    FormatOnRun: true
+    FormatSwift: swiftformat --indent 2
     ```
 
-*Notice: All occurences of the trigger get erased in the code block when found!*
+*Notice: All occurences of the triggers get erased in the code block when found!*
 
 ### Meta blocks
 
