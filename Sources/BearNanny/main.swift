@@ -82,26 +82,39 @@ func searchAndOpen(term: String) throws {
 }
 
 func placeCursor(_ line: Int, _ column: Int) {
-
-    let script = """
-    tell application \"System Events\"
-        keystroke return
-        key down {command}
-        key code 126
-        key up {command}
-        repeat with i from 1 to \(line)
-            key code 125
-        end repeat
-        repeat with i from 1 to \(column)
-            key code 124
-        end repeat
-    end tell
-    """
-
     do {
+        // we need a trick to overcome that
+        // Bear does soft wraps for long lines
+        // By using "alt + down" we jump to the
+        // end of the lines! then we go back to the
+        // first column with ctrl + left and then we
+        // move cursor right for the matching column
+        let script = """
+        tell application \"System Events\"
+            keystroke return
+            key down {command}
+            key code 126
+            key up {command}
+            key down {option}
+            repeat with i from 1 to \(line + 1)
+                key code 125
+            end repeat
+            key up {option}
+            key down {control}
+            key code 123
+            key up {control}
+            repeat with i from 1 to \(column)
+                key code 124
+            end repeat
+        end tell
+        """
+
         let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent(UUID().uuidString)
         try script.write(to: URL(fileURLWithPath: fileURL.path), atomically: false, encoding: .utf8)
+        // Bring bear Window to front!
+        NSWorkspace.shared.launchApplication("Bear")
+        // emit cursor keys
         shell("/usr/bin/env", ["osascript", fileURL.path])
     } catch {
         return
@@ -339,9 +352,16 @@ func nanny() throws {
                         // Handle code running
                         if knownCode.contains(codeType) || lastMeta["run"] != nil {
                             do {
+                                var options = [String]()
+                                var cmd = ""
 
-                                // run it as code :)
-                                let cmd = lastMeta["run"] ?? codeType
+                                if let run = lastMeta["run"] {
+                                    options = run.components(separatedBy: " ")
+                                    cmd = options[0]
+                                } else {
+                                    options.append(codeType)
+                                    cmd = codeType
+                                }
 
                                 if codeFile == "" {
                                     switch cmd {
@@ -399,7 +419,8 @@ func nanny() throws {
                                     if verbose > 0 {
                                         print("run \(cmd) on \(codeFile)")
                                     }
-                                    var (_, output, error) = shell("/usr/bin/env", [cmd, codeFile])
+                                    options.append(codeFile)
+                                    var (_, output, error) = shell("/usr/bin/env", options)
 
                                     var boffset = 0
                                     // is the next block an 'errors' block
@@ -471,7 +492,7 @@ func nanny() throws {
                 offset += 1
             }
             let build = blocks.joined(separator: "```")
-            var allowedQueryParamAndKey =  CharacterSet.urlQueryAllowed
+            var allowedQueryParamAndKey = CharacterSet.urlQueryAllowed
             allowedQueryParamAndKey.remove(charactersIn: ";/?:@&=+$, ")
             let urlText = build.addingPercentEncoding(withAllowedCharacters: allowedQueryParamAndKey)!
             if let url = URL(string: "bear://x-callback-url/add-text?id=\(noteUid)&mode=replace&text=\(urlText)") {
