@@ -471,8 +471,9 @@ func nanny() throws {
                 offset += 1
             }
             let build = blocks.joined(separator: "```")
-            let urlText = build.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
-                    .replacingOccurrences(of: "=", with: "%3d")
+            var allowedQueryParamAndKey =  CharacterSet.urlQueryAllowed
+            allowedQueryParamAndKey.remove(charactersIn: ";/?:@&=+$, ")
+            let urlText = build.addingPercentEncoding(withAllowedCharacters: allowedQueryParamAndKey)!
             if let url = URL(string: "bear://x-callback-url/add-text?id=\(noteUid)&mode=replace&text=\(urlText)") {
                 NSWorkspace.shared.open(url)
                 if triggerLine >= 0 {
