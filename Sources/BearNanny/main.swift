@@ -323,9 +323,9 @@ func nanny() throws {
                     }
 
                     if haveRunTrigger || haveFormatTrigger {
-                        if codeType == "php" {
-                            // PHP gets php tags so the code inside Bear looks cleaner
-                            // if one needs "raw" php there is always "run:php" possible too
+                        if codeType == "php" && !codeText.contains("<?php") {
+                            // PHP gets php tag (if none is in there already)
+                            // So the code inside Bear can look cleaner
                             codeText = "<?php\n\(codeText)"
                         }
                         if verbose > 2 {
