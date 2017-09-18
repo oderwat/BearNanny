@@ -98,6 +98,34 @@ Saving happens automatically every time the code gets changed. There is no trigg
     unsorted
     ```
 
+#### Running a MySQL Query on a local database
+
+This uses the recently added feature that you can use `<` as last option to a run command which then pipes the code block to the running command as standard input.
+
+    ```meta
+    run: mysql -sr -h localhost -u test test <
+    ```
+    ```sql
+    SELECT "SQL Example with some Text!\n\nUserlist:";
+    SELECT * FROM users;
+    SELECT "";  # creates an empty line
+    SELECT CONCAT("Total users: ",COUNT(*)) FROM users;
+    SELECT CONCAT("Total age: ",SUM(age)) FROM users;
+    ```
+    ```output
+    SQL Example with some Text!
+
+    Userlist:
+    bob	35	2017-09-18 12:51:20
+    joe	16	2017-09-18 12:51:29
+    max	23	2017-09-18 12:51:43
+
+    Total users: 3
+    Total age: 74
+    ```
+
+*P.S.: The `-r` option is needed to emit a real linefeed instead of `\n`*
+
 #### PHP (and Python) support
 
     ```php

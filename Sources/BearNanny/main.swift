@@ -419,8 +419,14 @@ func nanny() throws {
                                     if verbose > 0 {
                                         print("run \(cmd) on \(codeFile)")
                                     }
-                                    options.append(codeFile)
-                                    var (_, output, error) = shell("/usr/bin/env", options)
+                                    var stdin: String?
+                                    if options.last=="<" {
+                                        options.removeLast()
+                                        stdin = codeFile
+                                    } else {
+                                        options.append(codeFile)
+                                    }
+                                    var (_, output, error) = shell("/usr/bin/env", options, stdin: stdin)
 
                                     var boffset = 0
                                     // is the next block an 'errors' block
