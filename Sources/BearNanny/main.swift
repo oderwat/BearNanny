@@ -15,7 +15,6 @@ bearDB.busyTimeout = 5
 
 //bearDB.trace { print($0) }
 
-var globalTask: Process?
 var lastCheck: Double = 0.0
 var runTrigger = "<<<"
 var formatTrigger = ">>>"
@@ -23,6 +22,7 @@ var formatOnRun = false
 var formatConfigSwift: String?
 var verbose = 1
 
+var globalTask: Process?
 @discardableResult
 func shell(_ command: String, _ args: [String] = [], stdin: String? = nil) -> (Int32, String, String) {
 
@@ -128,7 +128,7 @@ func nanny() throws {
     let uid = Expression<String>("ZUNIQUEIDENTIFIER")
     let text = Expression<String>("ZTEXT")
     let trashed = Expression<Int64>("ZTRASHED")
-    let changed = Expression<Double>("ZMODIFICATIONDATE")
+    let changed = Expression<Double?>("ZMODIFICATIONDATE")
 
     var newestChange = 0.0
 
@@ -138,9 +138,11 @@ func nanny() throws {
             .filter(changed > lastCheck)
             .filter(trashed == 0)
     for row in try bearDB.prepare(configQuery) {
-        if row[changed] > newestChange {
-            newestChange = row[changed]
+        let chg = row[changed] ?? 0.0
+        if  chg > newestChange {
+            newestChange = chg
         }
+        //print(chg)
         let text = row[text]
         for line in text.split(separator: "\n") {
             let keyval = line.split(separator: ":", maxSplits: 1)
@@ -190,11 +192,12 @@ func nanny() throws {
         let text = String(parts[1])
 
         // it will still trigger twice because of the update to the note by url-scheme
-        if row[changed] > newestChange {
-            newestChange = row[changed]
+        let chg = row[changed] ?? 0.0
+        if chg > newestChange {
+            newestChange = chg
         }
 
-        let noteModified = Date(timeIntervalSinceReferenceDate: row[changed])
+        let noteModified = Date(timeIntervalSinceReferenceDate: chg)
 
         var blocks = text.components(separatedBy: "```")
 
@@ -383,7 +386,7 @@ func nanny() throws {
                                 }
 
                                 if verbose > 2 {
-                                    let date = Date(timeIntervalSinceReferenceDate: row[changed])
+                                    let date = Date(timeIntervalSinceReferenceDate: chg)
                                     let dayTimePeriodFormatter = DateFormatter()
                                     dayTimePeriodFormatter.dateFormat = "YYYY-MM-dd HH:mm:ss"
                                     let dateString = dayTimePeriodFormatter.string(from: date)
@@ -503,6 +506,7 @@ func nanny() throws {
             let urlText = build.addingPercentEncoding(withAllowedCharacters: allowedQueryParamAndKey)!
             if let url = URL(string: "bear://x-callback-url/add-text?id=\(noteUid)&mode=replace&text=\(urlText)") {
                 NSWorkspace.shared.open(url)
+                //shell("/usr/bin/open",["-jg",url.absoluteString])
                 if triggerLine >= 0 {
                     if verbose > 1 {
                         print("trigger at line: \(triggerLine) column: \(triggerColumn)")
