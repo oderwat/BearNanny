@@ -8,16 +8,16 @@ import SQLite
 let homeDirURL = URL(fileURLWithPath: NSHomeDirectory())
 // let homeDirURL = FileManager.default.homeDirectoryForCurrentUser
 
-let bearDB = try Connection("\(homeDirURL.absoluteString)/Library/Containers/net.shinyfrog.bear/Data/Documents/Application Data/database.sqlite",
-        readonly: true)
+//bearDB.trace { print($0) }
+let bearDBFile = "\(homeDirURL.path)/Library/Containers/net.shinyfrog.bear/Data/Documents/Application Data/database.sqlite"
+
+let bearDB = try Connection(bearDBFile, readonly: true)
 
 bearDB.busyTimeout = 5
 
-//bearDB.trace { print($0) }
-
 var lastCheck: Double = 0.0
-var runTrigger = "<<<"
-var formatTrigger = ">>>"
+var runTrigger = "<<<<"
+var formatTrigger = ">>>>"
 var formatOnRun = false
 var formatConfigSwift: String?
 var verbose = 1
@@ -525,10 +525,25 @@ func nanny() throws {
 }
 
 do {
-    while true {
-        try nanny()
-        sleep(1)
-    }
+    // we do it once unconditionally (fetching config and doing outstanding stuff)
+    try nanny()
+
+    let sema = DispatchSemaphore( value: 0)
+
+    // watching the sqlite file for changes (instead of polling the db the whole time)
+    let fildes = open(bearDBFile, O_EVTONLY)
+    let monitor = DispatchQueue(label: "de.oderwat.bearnanny.lister.monitor", attributes: .concurrent)
+    let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fildes, eventMask: [.write], queue: monitor)
+    source.setEventHandler(handler: {
+        //print("Detected possible changes in Bear Database")
+        do {
+            try nanny()
+        } catch {}
+    })
+    source.resume()
+    // wait forever
+    sema.wait()
+
 } catch let error {
     print("Error: \(error)")
 }
