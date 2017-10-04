@@ -19,7 +19,7 @@ With that running open up Bear and write a note with the following content:
     ```swift
     let a = 7
     let b = 8
-    print(a * b)<<<
+    print(a * b)<<<<
     ```
     ```output
     ```
@@ -37,7 +37,7 @@ The characters after the word output are a checksum of the code which helps avoi
 
 You can have multiple notes and sections which contain such swift code / output sections. BearNanny will check every other second for changes (and runs endlessly).
 
-Using a run trigger (default `<<<`) for re-computing the output has two reasons:
+Using a run trigger (default `<<<<`) for re-computing the output has two reasons:
 
 1. Before using the trigger, BearNanny was running the code much to often. Nice for the initial proof of concept but not really useful. Now you can trigger running the code when your changes are done.
 2. Bear currently still loses focus and cursor position when a note gets updated from external. So I figured out a very hacky trick to work around this: I figure out the line and column of the trigger in the note. After running the code and updating the note with the new output I create and run a little Apple Script to send keystrokes to the Bear Application which moves the cursor (hopefully) to the location the trigger was found.
@@ -49,8 +49,8 @@ You can also define a trigger for code block formatting (currently only for Swif
 As the code trigger may not fit for your use case you can change it by creating a code block with the following content:
 
     ```BearNanny
-    RunTrigger: <<<
-    FormatTrigger: >>>
+    RunTrigger: <<<<
+    FormatTrigger: >>>>
     FormatOnRun: true
     FormatSwift: swiftformat --indent 2
     ```
